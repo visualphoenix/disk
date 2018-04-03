@@ -70,27 +70,23 @@ func GetMountInfo() ([]MountInfo, error) {
 }
 
 // Suspend writes to the device/partition given the type of the mount
-func (mi MountInfo) Suspend() {
-	switch mi.BlockDeviceType {
-	case "disk":
-		fallthrough
-	case "part":
-		fs.Freeze(mi.Mountpoint)
-	case "lvm":
-		lvm.Suspend(mi.BlockDevice)
-	default:
+func (mi MountInfo) Suspend() error {
+	var err error
+	if mi.BlockDeviceType == "disk" || mi.BlockDeviceType == "part" {
+		err = fs.Freeze(mi.Mountpoint)
+	} else if mi.BlockDeviceType == "lvm" {
+		err = lvm.Suspend(mi.BlockDevice)
 	}
+	return err
 }
 
 // Resume writes to the device/partition given the type of the mount
-func (mi MountInfo) Resume() {
-	switch mi.BlockDeviceType {
-	case "disk":
-		fallthrough
-	case "part":
-		fs.Freeze(mi.Mountpoint)
-	case "lvm":
-		lvm.Suspend(mi.BlockDevice)
-	default:
+func (mi MountInfo) Resume() error {
+	var err error
+	if mi.BlockDeviceType == "disk" || mi.BlockDeviceType == "part" {
+		err = fs.Unfreeze(mi.Mountpoint)
+	} else if mi.BlockDeviceType == "lvm" {
+		err = lvm.Resume(mi.BlockDevice)
 	}
+	return err
 }
