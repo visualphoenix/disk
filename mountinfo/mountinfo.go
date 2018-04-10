@@ -19,37 +19,43 @@ type MountInfo struct {
 	PhysicalDevices []string
 }
 
+type blockDeviceDiskMap map[string][]string
+
 // GetMountInfoFrom returns a list of MountInfo from lsblk struct info
 func GetMountInfoFrom(l lsblk.Lsblk) []MountInfo {
 	var result []MountInfo;
-	mountpointToDisks := make(map[string][]string)
+	blockDeviceToDisks := make(blockDeviceDiskMap)
 	for _, d := range l.Disks {
-		if d.Disk.Mountpoint != "" {
-			mountpointToDisks[d.Disk.Mountpoint] =  append(mountpointToDisks[d.Disk.Mountpoint],d.Disk.Device)
-			m := MountInfo {
-				Mountpoint: d.Disk.Mountpoint,
-				FilesystemType: d.Disk.Fstype,
-				BlockDevice: d.Disk.Device,
-				BlockDeviceType: d.Disk.Dtype,
-			}
-			result = append(result, m)
-
-		}
-		for _, p := range d.Parts {
-			if p.Mountpoint != "" {
-				mountpointToDisks[p.Mountpoint] =  append(mountpointToDisks[p.Mountpoint],d.Disk.Device)
+		disk := d.Disk.Device
+		if d.Disk.Fstype != "LVM2_member" && d.Disk.Fstype != "" {
+			if _, ok := blockDeviceToDisks[d.Disk.Device]; !ok {
 				m := MountInfo {
-					Mountpoint: p.Mountpoint,
-					FilesystemType: p.Fstype,
-					BlockDevice: p.Device,
-					BlockDeviceType: p.Dtype,
+					Mountpoint: d.Disk.Mountpoint,
+					FilesystemType: d.Disk.Fstype,
+					BlockDevice: d.Disk.Device,
+					BlockDeviceType: d.Disk.Dtype,
 				}
 				result = append(result, m)
+			}
+			blockDeviceToDisks[d.Disk.Device] =  append(blockDeviceToDisks[d.Disk.Device], disk)
+		}
+		for _, p := range d.Parts {
+			if p.Fstype != "LVM2_member" {
+				if _, ok := blockDeviceToDisks[p.Device]; !ok {
+					m := MountInfo {
+						Mountpoint: p.Mountpoint,
+						FilesystemType: p.Fstype,
+						BlockDevice: p.Device,
+						BlockDeviceType: p.Dtype,
+					}
+					result = append(result, m)
+				}
+				blockDeviceToDisks[p.Device] = append(blockDeviceToDisks[p.Device], disk)
 			}
 		}
 	}
 	for i := range result {
-		disks := mountpointToDisks[result[i].Mountpoint]
+		disks := blockDeviceToDisks[result[i].BlockDevice]
 		result[i].PhysicalDevices = disks
 	}
 	return result
@@ -57,11 +63,10 @@ func GetMountInfoFrom(l lsblk.Lsblk) []MountInfo {
 
 // GetMountInfo returns a list of MountInfo
 func GetMountInfo() ([]MountInfo, error) {
-	raw, err := lsblk.ExecLsblk()
+	l, err := lsblk.GetLsblkInfo()
 	if err != nil {
-		return []MountInfo{}, fmt.Errorf("lsblk exec error: %s", err)
+		return []MountInfo{}, fmt.Errorf("parse error: %s", err)
 	}
-	l, err := lsblk.ParseRawLsblk(raw)
 	if err != nil {
 		return []MountInfo{}, fmt.Errorf("parse error: %s", err)
 	}
@@ -73,7 +78,9 @@ func GetMountInfo() ([]MountInfo, error) {
 func (mi MountInfo) Suspend() error {
 	var err error
 	if mi.BlockDeviceType == "disk" || mi.BlockDeviceType == "part" {
-		err = fs.Freeze(mi.Mountpoint)
+		if mi.Mountpoint != "" {
+			err = fs.Freeze(mi.Mountpoint)
+		}
 	} else if mi.BlockDeviceType == "lvm" {
 		err = lvm.Suspend(mi.BlockDevice)
 	}
@@ -84,7 +91,9 @@ func (mi MountInfo) Suspend() error {
 func (mi MountInfo) Resume() error {
 	var err error
 	if mi.BlockDeviceType == "disk" || mi.BlockDeviceType == "part" {
-		err = fs.Unfreeze(mi.Mountpoint)
+		if mi.Mountpoint != "" {
+			err = fs.Unfreeze(mi.Mountpoint)
+		}
 	} else if mi.BlockDeviceType == "lvm" {
 		err = lvm.Resume(mi.BlockDevice)
 	}
